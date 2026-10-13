@@ -1,0 +1,11 @@
+Package: rAT1000
+Title: Import and Visualize OLSA AT1000 Measurements
+Version: 0.1.0
+Authors@R: person("Andreas F.", "Kandolf", email = "ankandolf@gmail.com", role = c("aut", "cre"))
+Description: Reads AT1000 .hd measurement files, computes cumulative fixed-slope
+    maximum-likelihood estimates of SRT50 and their model-based standard errors,
+    and plots the measurement results. Intended for research and validation,
+    not as a validated clinical diagnostic tool.
+License: MIT + file LICENSE
+Encoding: UTF-8
+RoxygenNote: 7.3.2

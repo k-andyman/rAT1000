@@ -412,37 +412,88 @@ extract_trials <- function(txt) {
   return(trials)
 }
 
-read_olsa_hd <- function(file) {
-  # Liest eine .hd-Datei ein und gibt eine Liste mit zwei Dataframes zurück.
-  #
-  # Output:
-  #   data$global -> globale Messdaten, eine Zeile
-  #   data$trials -> Trial-/Satzdaten, eine Zeile pro Satz
-  #
-  # Anwendung:
-  #   data <- read_olsa_hd(file)
-  #   data$global
-  #   data$trials
-  
-  
-  # 1. Datei einlesen und bereinigen
+read_olsa_hd <- function(file, trim_aborted = TRUE, min_zero_run = 5) {
+  if (length(min_zero_run) != 1L ||
+      is.na(min_zero_run) ||
+      !is.finite(min_zero_run) ||
+      min_zero_run < 1 ||
+      min_zero_run != floor(min_zero_run)) {
+    stop("min_zero_run muss eine positive ganze Zahl sein.")
+  }
+
   txt <- read_hd(file)
-  
-  
-  # 2. Globale Daten extrahieren
   global <- extract_global(txt)
-  
-  
-  # 3. Trial-Daten extrahieren
   trials <- extract_trials(txt)
-  
-  
-  # 4. Beide Dataframes in eine named list packen
-  df <- list(
-    global = global,
-    trials = trials
-  )
-  
-  
-  return(df)
+
+  trials_original <- nrow(trials)
+  trailing_zero_count <- 0L
+  trailing_rows_removed <- 0L
+  trailing_zero_trimmed <- FALSE
+
+  if (trim_aborted && nrow(trials) > 0L &&
+      all(c("n_correct", "target_sentence", "selected_sentence") %in% names(trials))) {
+
+    has_text <- function(x) {
+      !is.na(x) & nzchar(trimws(x))
+    }
+
+    # Ein Trial ist nur vollständig geparst, wenn beide Sätze vorhanden
+    # und die Zahl erkannter Wörter gültig ist.
+    parsed <- is.finite(trials$n_correct) &
+      has_text(trials$target_sentence) &
+      has_text(trials$selected_sentence)
+
+    parsed_rows <- which(parsed)
+
+    if (length(parsed_rows) == 0L) {
+      warning("Keine vollständig geparsten Trials gefunden.")
+      trials <- trials[0, , drop = FALSE]
+    } else {
+      last_parsed <- max(parsed_rows)
+
+      # Unvollständige Zeilen nach dem letzten geparsten Trial entfernen.
+      if (last_parsed < nrow(trials)) {
+        trailing_rows_removed <- nrow(trials) - last_parsed
+        trials <- trials[seq_len(last_parsed), , drop = FALSE]
+        parsed <- parsed[seq_len(last_parsed)]
+      }
+
+      # Anschließend auf mindestens fünf abschließende Nuller prüfen.
+      zero_trial <- parsed & trials$n_correct == 0
+      runs <- rle(zero_trial)
+
+      if (length(runs$values) > 0L && tail(runs$values, 1)) {
+        trailing_zero_count <- tail(runs$lengths, 1)
+      }
+
+      if (trailing_zero_count >= min_zero_run) {
+        last_positive <- which(parsed & trials$n_correct >= 1)
+
+        if (length(last_positive) > 0L) {
+          last_keep <- max(last_positive)
+          trailing_rows_removed <- trailing_rows_removed +
+            nrow(trials) - last_keep
+          trials <- trials[seq_len(last_keep), , drop = FALSE]
+          trailing_zero_trimmed <- TRUE
+        } else {
+          warning("Nur Nuller-Trials gefunden; Nuller wurden nicht entfernt.")
+        }
+      }
+    }
+  }
+
+  global$trials_original <- trials_original
+  global$trials_used <- nrow(trials)
+  global$trailing_rows_removed <- trailing_rows_removed
+  global$trailing_zero_count <- trailing_zero_count
+  global$trailing_zero_trimmed <- trailing_zero_trimmed
+
+  if (trailing_rows_removed > 0L) {
+    message(
+      trailing_rows_removed,
+      " unvollständige oder abgebrochene Trials am Dateiende entfernt."
+    )
+  }
+
+  list(global = global, trials = trials)
 }

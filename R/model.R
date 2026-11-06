@@ -21,8 +21,10 @@ olsa_mle <- function(trials, slope = 0.15) {
     SRT50_sd = if (is.finite(curvature) && curvature > 0) sqrt(1/curvature) else NA_real_)
 }
 
-process_olsa <- function(hd, slope = 0.15) {
-  data <- read_olsa_hd(hd)
+process_olsa <- function(hd, slope = 0.15,
+                         trim_aborted = TRUE, min_zero_run = 5) {
+  data <- read_olsa_hd(hd, trim_aborted = trim_aborted,
+                       min_zero_run = min_zero_run)
   tr <- data$trials
   if (!is.data.frame(tr) || nrow(tr) < 1L) stop("Keine OLSA-Trials in dieser .hd-Datei erkannt")
   required <- c("snr", "n_correct", "n_words")

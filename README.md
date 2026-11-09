@@ -1,135 +1,114 @@
 # rAT1000
 
-An R package for importing, analyzing, and visualizing OLSA (Oldenburg Sentence Test) measurements recorded with the AT1000 audiometry system.
+An R package for importing, analyzing, and visualizing OLSA (Oldenburg Sentence Test) measurements from the AT1000 audiometry system.
 
-The package reads AT1000 `.hd` files, extracts trial-level word recognition and measurement metadata, and independently estimates the speech reception threshold at 50% intelligibility (SRT50) using a fixed-slope maximum-likelihood estimator (MLE).
+**Version 0.1.2** adds a rolling-window SRT50 maximum-likelihood estimate (MLE), alongside the cumulative MLE and the moving average of word intelligibility.
 
 ## Installation
 
-Install directly from GitHub:
-
 ```r
-install.packages("remotes") # only if not already installed
-remotes::install_github("k-andyman/rAT1000", upgrade = "never")
+install.packages("remotes")  # only if required
+remotes::install_github("k-andyman/rAT1000")
 library(rAT1000)
 ```
 
-To reinstall an updated version:
+To update an existing installation:
 
 ```r
 remotes::install_github("k-andyman/rAT1000", force = TRUE, upgrade = "never")
 ```
 
-## Usage
+Restart R after installation and check `packageVersion("rAT1000")`.
 
-### Process an AT1000 measurement
-
-```r
-result <- process_olsa("measurement.hd")
-
-result$global  # Measurement metadata and AT1000 results
-result$trials  # Trial-level data and cumulative MLE results
-```
-
-The package uses the following defaults:
+## Process measurements
 
 ```r
 result <- process_olsa(
   "measurement.hd",
   slope = 0.15,
+  MLE_rolling_window = 20,
   trim_aborted = TRUE,
   min_zero_run = 5
 )
+
+result$global              # Metadata and AT1000 results
+result$MLE_rolling_window # Actual rolling MLE window length
+result$trials              # Trial-level measurements and estimates
 ```
 
-The output is a list containing two data frames:
+`result$trials` contains these derived columns:
 
-- `global`: AT1000 measurement metadata, reported results, and information about any removed trailing trials.
-- `trials`: Retained trials, including SNR, word recognition, and the additional columns `SRT50_MLE` (cumulative estimate) and `SRT50_sd` (model-based standard error).
+| Column | Meaning |
+| --- | --- |
+| `SRT50_MLE` | Cumulative SRT50 MLE from trials 1 through *t* |
+| `SRT50_sd` | Model-based standard error for the cumulative MLE |
+| `rwMLE` | SRT50 MLE re-fitted to the most recent `MLE_rolling_window` trials |
+| `rwSD` | Model-based standard error for the rolling-window MLE |
 
-### Automatic detection of suspected aborted trials
+The rolling MLE starts at trial 20 by default (trials 1–19 are `NA`). At trial 21 the window contains trials 2–21. Fits with exclusively correct or incorrect words are returned as `NA` because a finite unbounded MLE does not exist.
 
-By default, `trim_aborted = TRUE` removes incomplete trailing records. It also removes a terminal run of at least `min_zero_run = 5` fully parsed trials with zero correctly recognized words, provided that at least one earlier trial contained a correct response.
+These uncertainty columns are historically named `sd`, but mathematically represent **standard errors (SE)** rather than the observed standard deviation of thresholds.
 
-To inspect the trimming decision:
-
-```r
-result$global[, c(
-  "trials_original",
-  "trials_used",
-  "trailing_rows_removed",
-  "trailing_zero_count",
-  "trailing_zero_trimmed"
-)]
-```
-
-To retain the original parsed trials or change the threshold:
+## Plot measurements
 
 ```r
-result_all <- process_olsa("measurement.hd", trim_aborted = FALSE)
-result_strict <- process_olsa("measurement.hd", min_zero_run = 8)
-```
-
-**Important:** A sequence of zero-correct trials is treated as a *suspected* aborted measurement, not proof of one. Real observations can meet the same criterion; inspect the affected measurements when needed. The original `.hd` file is not modified. The AT1000-reported final value in `global` refers to the original measurement and may therefore differ from the estimate based on retained trials.
-
-### Visualize a measurement
-
-```r
+# Plot a processed measurement
 plot_olsa(result)
 
-# Or import and plot directly from an .hd file
-plot_olsa("measurement.hd")
+# Alternatively, process and plot directly from a file
+plot_olsa(
+  "measurement.hd",
+  intelligibility_moving_window = 8,
+  MLE_rolling_window = 20,
+  show_sd = TRUE
+)
 
-# Adjust the moving-average window (in trials)
-plot_olsa(result, moving_window = 15)
-
-# Plot all parsed trials without automatic trimming
-plot_olsa("measurement.hd", trim_aborted = FALSE)
+# Longer SRT50 recording with a 30-trial rolling fit
+long_result <- process_olsa("long_measurement.hd", MLE_rolling_window = 30)
+plot_olsa(long_result, intelligibility_moving_window = 10)
 ```
+
+`plot_olsa()` produces four panels: cumulative and rolling SRT50 MLE trajectories with AT1000 estimates and optional ±1 SE curves; cumulative word intelligibility and its moving mean; sentence-score and word-position distributions; and an SRT50/results summary.
+
+When plotting preprocessed results, `plot_olsa()` uses the **stored** rolling-window size. When plotting a `.hd` path directly, both windows can be set in the call. The old `moving_window` argument remains available as a backwards-compatible alias for `intelligibility_moving_window`.
 
 ### Example visualization
 
-The following figure shows an example output of `plot_olsa()` for an AT1000 measurement:
+![Example of a four-panel OLSA plot](images/olsa_example.png)
 
-![Example output of plot_olsa showing SRT50 trajectories, word intelligibility, response distributions, and measurement summary](images/olsa_example.png)
+*Example screenshot from an earlier plot iteration. The current version additionally displays the rolling-window SRT50 MLE in the upper-left panel and the summary.*
 
-`plot_olsa()` displays four panels:
+## Suspected aborted measurements
 
-1. Cumulative SRT50 MLE estimates, their model-based uncertainty (`+/- 1 SD`, if enabled), and the AT1000 SRT50 trajectory.
-2. Word intelligibility across trials: cumulative percentage and a moving-window percentage (default: last 8 trials). The moving-window line begins only after a full window is available.
-3. Distributions of correctly recognized words per sentence (0–5) and correct responses by word position (1–5).
-4. Final SRT50 comparison and measurement summary.
+By default, `trim_aborted = TRUE` removes incomplete trailing records and a terminal run of at least `min_zero_run = 5` fully parsed trials with zero correct words, if earlier trials contain correct responses. This is a heuristic, not a guarantee that the measurement was aborted.
 
-If a processed `result` is supplied to `plot_olsa()`, trimming has already happened in `process_olsa()`. The `trim_aborted` argument only controls preprocessing when plotting directly from a file path.
+```r
+result$global[, c(
+  "trials_original", "trials_used",
+  "trailing_rows_removed", "trailing_zero_count", "trailing_zero_trimmed"
+)]
 
-## Methodological notes
+untrimmed <- process_olsa("measurement.hd", trim_aborted = FALSE)
+```
 
-The independent estimator uses a binomial likelihood and a logistic psychometric function:
+The original `.hd` file is never modified. Summary intelligibility in the plot is computed from **retained trials** and can therefore differ from the value stored in the AT1000 header (especially with multi-list long tests or trimming).
+
+## Method
+
+Both SRT50 estimators use a binomial log-likelihood with the fixed logistic psychometric function:
 
 \[
-P(\mathrm{correct}\mid L) = \frac{1}{1 + \exp[-4s(L-L_{50})]}, \qquad s = 0.15.
+p(\text{correct}\mid L) = \operatorname{logit}^{-1}\!\left(4s(L-L_{50})\right), \quad s=0.15.
 \]
 
-Here, `L` is the presented signal-to-noise ratio and `L50` is the estimated SRT50. The fixed slope of **0.15** matches the `OldenburgerL50` setting in the AT1000 configuration used for this project. The package calculates a new estimate after each retained trial using all valid observations up to that point.
+Here `L` is the SNR of each trial. The slope `0.15` follows the `OldenburgerL50` setting in the AT1000 configuration used in this project; the software may use other fitting routines, such as `OldenburgerLX` with a variable slope. The model-based SE is calculated using likelihood curvature and assumes conditionally independent word responses.
 
-The AT1000 can use other fitting procedures, including `OldenburgerLX`, which allows the slope to vary. Consequently, the independently estimated SRT50 may differ from the AT1000 value.
-
-Model-based standard errors are calculated from the likelihood curvature and assume conditionally independent word responses. Unidentifiable estimates are returned as `NA`.
+A rolling-window MLE is not a moving average of earlier MLE values. It is a **new likelihood fit** using only the word scores and SNRs in the current window. With strongly overlapping windows, adjacent estimates are correlated; a visible trajectory alone does not establish a learning or habituation effect.
 
 ## Limitations and data protection
 
-This package is intended for research, methodological evaluation, and exploratory analysis. It has not been validated as a clinical diagnostic tool and does not replace established diagnostic procedures.
+This package is for methodological research and exploratory analysis, not a clinically validated diagnostic tool. Do not upload identifiable patient `.hd` recordings to public GitHub repositories.
 
-Do not upload identifiable patient data or original clinical measurement files to this public repository.
+## License and author
 
-## License
-
-MIT License. Copyright (c) 2026 Andreas F. Kandolf.
-
-## Author
-
-Andreas F. Kandolf
-
-## Source code
-
-https://github.com/k-andyman/rAT1000
+MIT License © 2026 Andreas F. Kandolf.

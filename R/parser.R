@@ -1,4 +1,4 @@
-# Originalfunktionen aus 01_SRT50_Daten_einlesen.html
+# Parser for AT1000 .hd files. Derived from the updated OLSA notebook.
 
 read_hd <- function(file) {
   ## Einlesen von .hd Dateien, die von der SRT50 Software generiert werden.
@@ -135,48 +135,6 @@ extract_key <- function(txt, key, which = c("last", "first", "all")) {
   }
 }
 
-extract_readable_value <- function(readable, label) {
-  # Extrahiert einzelne Werte aus ReadableResult.
-  #
-  # Beispiel ReadableResult:
-  #   "50%-Schwelle: -11,2 dB; Verständlichkeit: 56,0 %; Freifeld; ..."
-  #
-  # Beispiel:
-  #   extract_readable_value(readable, "50%-Schwelle")
-  #   -> "-11,2 dB"
-  #
-  #   extract_readable_value(readable, "Verständlichkeit")
-  #   -> "56,0 %"
-  
-  pattern <- paste0(label, "\\s*:\\s*([^;]+)")
-  hit <- regmatches(readable, regexpr(pattern, readable, perl = TRUE))
-  
-  if (length(hit) == 0 || hit == "") {
-    return(NA_character_)
-  }
-  
-  value <- sub(pattern, "\\1", hit, perl = TRUE)
-  value <- trimws(value)
-  
-  return(value)
-}
-
-as_num <- function(x) {
-  # Wandelt Textwerte in numerische Werte um.
-  #
-  # Wichtig für deutsche Dezimalkommas:
-  #   "-11,2" -> -11.2
-  #
-  # Außerdem:
-  #   "-" oder "" -> NA
-  
-  x <- trimws(x)
-  x[x %in% c("", "-", "NA")] <- NA_character_
-  x <- gsub(",", ".", x, fixed = TRUE)
-  
-  suppressWarnings(as.numeric(x))
-}
-
 extract_global <- function(txt) {
   # Extrahiert globale Messdaten aus einem bereinigten .hd-Text.
   #
@@ -254,6 +212,48 @@ extract_global <- function(txt) {
   )
   
   return(global)
+}
+
+extract_readable_value <- function(readable, label) {
+  # Extrahiert einzelne Werte aus ReadableResult.
+  #
+  # Beispiel ReadableResult:
+  #   "50%-Schwelle: -11,2 dB; Verständlichkeit: 56,0 %; Freifeld; ..."
+  #
+  # Beispiel:
+  #   extract_readable_value(readable, "50%-Schwelle")
+  #   -> "-11,2 dB"
+  #
+  #   extract_readable_value(readable, "Verständlichkeit")
+  #   -> "56,0 %"
+  
+  pattern <- paste0(label, "\\s*:\\s*([^;]+)")
+  hit <- regmatches(readable, regexpr(pattern, readable, perl = TRUE))
+  
+  if (length(hit) == 0 || hit == "") {
+    return(NA_character_)
+  }
+  
+  value <- sub(pattern, "\\1", hit, perl = TRUE)
+  value <- trimws(value)
+  
+  return(value)
+}
+
+as_num <- function(x) {
+  # Wandelt Textwerte in numerische Werte um.
+  #
+  # Wichtig für deutsche Dezimalkommas:
+  #   "-11,2" -> -11.2
+  #
+  # Außerdem:
+  #   "-" oder "" -> NA
+  
+  x <- trimws(x)
+  x[x %in% c("", "-", "NA")] <- NA_character_
+  x <- gsub(",", ".", x, fixed = TRUE)
+  
+  suppressWarnings(as.numeric(x))
 }
 
 extract_trials <- function(txt) {
